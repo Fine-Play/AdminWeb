@@ -147,9 +147,7 @@ const Brand = styled.div`
   margin-bottom: 24px;
 `;
 
-const BlackText = styled.span`
-  color: #0f172a;
-`;
+
 
 const PurpleText = styled.span`
   color: #21213F;

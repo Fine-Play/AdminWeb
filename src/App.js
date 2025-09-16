@@ -11,7 +11,6 @@ import MatchCreatePage from "./pages/MatchCreatePage";
 import AdminMatchImportPage from "./pages/AdminMatchImportPage";
 import AdminMatchesPage from "./pages/AdminMatchesPage";
 import AlertsPage from "./pages/AlertsPage";
-import UpdatePage from "./pages/UpdatePage";
 import PrivateRoute from "./components/PrivateRoute";
 
 function AppWrapper() {
@@ -83,14 +82,7 @@ function AppWrapper() {
             </PrivateRoute>
           }
         />
-        <Route
-          path="/updates"
-          element={
-            <PrivateRoute>
-              <UpdatePage />
-            </PrivateRoute>
-          }
-        />
+      
       </Routes>
     </>
   );
