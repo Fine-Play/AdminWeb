@@ -104,9 +104,7 @@ const TeamPage = () => {
                 <Th style={{ width: 140 }}>지역</Th>
                 <Th style={{ width: 120 }}>팀장</Th>
                 <Th style={{ width: 90 }}>인원</Th>
-                <Th style={{ width: 120 }}>OVR 분포</Th>
                 <Th style={{ width: 140 }}>전적(W/D/L)</Th>
-                <Th style={{ width: 80 }}>이미지</Th>
                 <Th style={{ width: 120 }}>자세히</Th>
               </tr>
             </thead>
@@ -123,13 +121,10 @@ const TeamPage = () => {
                       : "-"}
                   </Td>
                   <Td>{t.memberNum ?? 0}</Td>
-                  <Td>{t.OVRDist || "-"}</Td>
                   <Td>
                     {(t.totalWin ?? 0)}/{(t.totalDraw ?? 0)}/{(t.totalLose ?? 0)}
                   </Td>
-                  <Td>
-                    {t.teamImg ? <Thumb src={t.teamImg} alt="team" /> : <span>-</span>}
-                  </Td>
+              
                   <Td>
                     <SmallButton onClick={() => navigate(`/teams/${t.teamId}`)}>
                       세부 정보

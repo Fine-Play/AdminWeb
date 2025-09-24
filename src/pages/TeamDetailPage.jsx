@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import styled from "styled-components";
 import api from "../api/api";
 import { useParams, useNavigate } from "react-router-dom";
+import UploadField from "../uploader/UploadField";
 
 /** Admin Team Detail Page (요약↔상세를 한 모달에서 전환) */
 const TeamDetailPage = () => {
@@ -9,6 +10,8 @@ const TeamDetailPage = () => {
   const navigate = useNavigate();
 
   const [detail, setDetail] = useState(null);
+  const [teamImgUrl, setTeamImgUrl] = useState(""); 
+
   const [members, setMembers] = useState([]);
   const [requests, setRequests] = useState([]);
   const [tab, setTab] = useState("stat"); // stat | members | matches | requests | edit
@@ -47,9 +50,22 @@ const TeamDetailPage = () => {
     }
   };
 
+    const fetchTeamImage = async () => {
+    try {
+        const r = await api.get(`/api/teams/${teamId}/profile-image`);
+   const url = r?.data?.url || "";  // ✅ 응답이 {url: "..."}
+   setTeamImgUrl(url);
+    } catch (e) {
+      console.warn("팀 이미지 불러오기 실패", e);
+      setTeamImgUrl("");
+    }
+  };
+
+
   useEffect(() => {
     if (!teamId) return;
     loadAll();
+      fetchTeamImage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId]);
 
@@ -284,6 +300,13 @@ const TeamDetailPage = () => {
           <Title>{detail.teamName}</Title>
           <Muted>{detail.region} · {detail.teamType} · 인원 {detail.memberNum ?? 0}명</Muted>
         </div>
+         {teamImgUrl && (
+          <img
+            src={teamImgUrl}
+            alt="team"
+            style={{ width: 48, height: 48, borderRadius: 10, objectFit: "cover", border: "1px solid #eee" }}
+          />
+        )}
         <div style={{ display: "flex", gap: 8 }}>
           <Button onClick={handleRecount}>Recount</Button>
           <DangerButton onClick={handleDeleteTeam}>팀 삭제</DangerButton>
@@ -428,12 +451,17 @@ const TeamDetailPage = () => {
         <Card>
           <h2>팀 정보 수정</h2>
           <EditForm
+          teamId={teamId}
             defaultName={detail.teamName || ""}
             defaultRegion1={region1}
             defaultRegion2={region2}
             defaultType={detail.teamType || ""}
-            defaultImg={detail.teamImg || ""}
+           defaultImg={teamImgUrl}     
             onSubmit={handleUpdate}
+            onImageChanged={async () => {
+              // 업로드 완료 후에는 무조건 GET으로 다시 받아서 최신 프리사인드 URL로 교체
+              await fetchTeamImage();
+            }}
           />
         </Card>
       )}
@@ -551,12 +579,24 @@ const TeamDetailPage = () => {
 export default TeamDetailPage;
 
 /* ====== Edit Form ====== */
-function EditForm({ defaultName, defaultRegion1, defaultRegion2, defaultType, defaultImg, onSubmit }) {
+/* ====== Edit Form (업로드=DB반영 원샷) ====== */
+function EditForm({
+  teamId,
+  defaultName,
+  defaultRegion1,
+  defaultRegion2,
+  defaultType,
+  defaultImg,
+  onSubmit,
+  onImageChanged,
+}) {
   const [teamName, setTeamName] = useState(defaultName);
   const [homeTown1, setHomeTown1] = useState(defaultRegion1);
   const [homeTown2, setHomeTown2] = useState(defaultRegion2);
   const [teamType, setTeamType] = useState(defaultType);
-  const [teamImg, setTeamImg] = useState(defaultImg);
+
+  // 업로드 응답 url을 미리보기로만 사용 (PATCH로는 절대 보내지 않음)
+  const [previewImg, setPreviewImg] = useState(defaultImg || "");
 
   const submit = (e) => {
     e.preventDefault();
@@ -565,7 +605,10 @@ function EditForm({ defaultName, defaultRegion1, defaultRegion2, defaultType, de
     if (homeTown1 !== defaultRegion1) payload.homeTown1 = homeTown1;
     if (homeTown2 !== defaultRegion2) payload.homeTown2 = homeTown2;
     if (teamType !== defaultType) payload.teamType = teamType;
-    if (teamImg !== defaultImg) payload.teamImg = teamImg;
+
+    // ❌ teamImg는 서버 업로드에서 DB저장 끝! PATCH에 포함 금지
+    // if (previewImg !== defaultImg) ... ← 절대 넣지 말 것
+
     if (Object.keys(payload).length === 0) {
       alert("변경 사항이 없습니다.");
       return;
@@ -573,26 +616,97 @@ function EditForm({ defaultName, defaultRegion1, defaultRegion2, defaultType, de
     onSubmit(payload);
   };
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.get(`/api/teams/${teamId}/profile-image`);
+        const url =  r?.data?.url || "";
+        if (url) setPreviewImg(url);
+      } catch {
+        // 실패 시 defaultImg 유지
+      }
+        })();
+  }, [teamId]);
+
   return (
-    <form onSubmit={submit} style={{ display: "grid", gap: 10, maxWidth: 520 }}>
-      <label>팀명
+    <form onSubmit={submit} style={{ display: "grid", gap: 12, maxWidth: 560 }}>
+      <label>
+        팀명
         <Input value={teamName} onChange={(e) => setTeamName(e.target.value)} />
       </label>
+
       <LabelRow>
-        <label style={{ flex: 1 }}>지역(시/도)
+        <label style={{ flex: 1 }}>
+          지역(시/도)
           <Input value={homeTown1} onChange={(e) => setHomeTown1(e.target.value)} />
         </label>
-        <label style={{ flex: 1 }}>지역(시/군/구)
+        <label style={{ flex: 1 }}>
+          지역(시/군/구)
           <Input value={homeTown2} onChange={(e) => setHomeTown2(e.target.value)} />
         </label>
       </LabelRow>
-      <label>종목
+
+      <label>
+        종목
         <Input value={teamType} onChange={(e) => setTeamType(e.target.value)} />
       </label>
-      <label>팀 이미지 URL
-        <Input value={teamImg} onChange={(e) => setTeamImg(e.target.value)} />
-      </label>
-      <div style={{ display: "flex", gap: 8 }}>
+
+      {/* ✅ 팀 이미지: 업로드=DB 저장. 프론트는 미리보기만 갱신 */}
+      <div>
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>팀 이미지</div>
+        {previewImg ? (
+          <img
+            src={previewImg}
+            alt="team"
+            style={{
+              width: 96,
+              height: 96,
+              borderRadius: 12,
+              objectFit: "cover",
+              border: "1px solid #eee",
+              marginBottom: 8,
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 96,
+              height: 96,
+              borderRadius: 12,
+              border: "1px dashed #e5e7eb",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 8,
+              color: "#9CA3AF",
+              fontSize: 12,
+            }}
+          >
+            미리보기 없음
+          </div>
+        )}
+
+        <UploadField
+          label="이미지 선택"
+          initialUrl={previewImg}
+          endpoint={`/api/teams/${teamId}/profile-image`} // 멀티파트 POST, 서버가 S3+DB 저장
+           onUploaded={async ({ url }) => {
+            try {
+              const r = await api.get(`/api/teams/${teamId}/profile-image`);
+              const fresh = r?.data?.url || "";
+              setPreviewImg(fresh || "");
+            } finally {
+              onImageChanged?.(); // 부모(상단 헤더)도 싱크
+            }
+          }}
+        />
+
+        <div style={{ color: "#6b7280", fontSize: 12, marginTop: 6 }}>
+          업로드하면 즉시 저장돼요. 저장 버튼을 누를 필요가 없습니다.
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
         <PrimaryButton type="submit">수정</PrimaryButton>
       </div>
     </form>
