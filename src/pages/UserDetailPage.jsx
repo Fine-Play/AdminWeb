@@ -745,20 +745,7 @@ const UserDetailPageUX = () => {
             </UD.KV>
 
             {/* 프로필 이미지 업로드: 업로드=DB 반영, 프론트는 URL만 갱신 */}
-          <UploadField
-              label="프로필 이미지"
-              initialUrl={user.profileImg || ""}
-              endpoint={`/api/users/${user.userId}/profile-image`}
-              onUploaded={async () => {
-                try {
-                  const r = await api.get(`/api/users/${user.userId}/profile-image`);
-                  const fresh = r?.data?.url || "";
-                  setUser((u) => ({ ...u, profileImg: fresh }));
-                } catch {
-                  // 실패 시 기존 url 유지
-                }
-              }}
-            />
+         
           </UD.Card>
 
           <UD.Card>
