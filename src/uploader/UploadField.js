@@ -1,18 +1,19 @@
 // src/uploader/UploadField.jsx
 import React, { useRef, useState } from "react";
 import styled from "styled-components";
+import api from "../api/api";
 import { validateFile, uploadImage } from "./adapter";
 
 const Box = styled.label`
   display:flex; align-items:center; justify-content:center; text-align:center;
-  border:2px dashed ${p=>p.active?'#111':'#ccc'}; border-radius:12px; cursor:pointer;
-  height:${p=>p.h||140}px; background:${p=>p.active?'#fafafa':'#fff'};
+  border:2px dashed ${p => p.active ? '#111' : '#ccc'}; border-radius:12px; cursor:pointer;
+  height:${p => p.h || 140}px; background:${p => p.active ? '#fafafa' : '#fff'};
 `;
 const Row = styled.div`display:flex; gap:8px; align-items:center; flex-wrap:wrap;`;
 const Thumb = styled.img`width:72px; height:72px; object-fit:cover; border-radius:10px; border:1px solid #eee;`;
 
 export default function UploadField({
-   label, initialUrl="", endpoint, onUploaded, height=120 }) {
+  label, initialUrl = "", endpoint, onUploaded, height = 120 }) {
   const [url, setUrl] = useState(initialUrl);
   const [loading, setLoading] = useState(false);
   const [pct, setPct] = useState(0);
