@@ -64,22 +64,26 @@ function FormationImageUploader({ matchId, type, imageUrl, onUploaded }) {
   const [loading, setLoading] = useState(false);
 
   const handleFile = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      await api.post(`/api/matches/${matchId}/formation-image/${type}`, formData);
-      // 업로드 후 최신 이미지 GET
-      const r = await api.get(`/api/matches/${matchId}/formation-image/${type}`);
-      const url = r?.data?.url || "";
-      setPreview(url);
-      onUploaded?.(url);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const input = e.target;
+  const file = input.files?.[0];
+  if (!file) return;
+  setLoading(true);
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    await api.post(`/api/match/${matchId}/formation-image/${type}`, formData);
+    const r = await api.get(`/api/match/${matchId}/formation-image/${type}`);
+    const url = r?.data?.url ?? r?.data?.data?.url ?? "";
+    // (선택) 캐시 깨기
+    const bust = url ? url + (url.includes("?") ? "&" : "?") + "t=" + Date.now() : "";
+    setPreview(bust || url);
+    onUploaded?.(url);
+  } finally {
+    setLoading(false);
+    input.value = ""; // ✅ 같은 파일 다시 선택 가능
+  }
+};
+
 
   useEffect(() => {
     setPreview(imageUrl || "");
@@ -112,11 +116,11 @@ function FormationImageUploader({ matchId, type, imageUrl, onUploaded }) {
     if (!detail?.matchId) return;
     (async () => {
       try {
-        const homeRes = await api.get(`/api/matches/${detail.matchId}/formation-image/home`);
+        const homeRes = await api.get(`/api/match/${detail.matchId}/formation-image/home`);
         setHomeFormationImg(homeRes?.data?.url || "");
       } catch {}
       try {
-        const awayRes = await api.get(`/api/matches/${detail.matchId}/formation-image/away`);
+        const awayRes = await api.get(`/api/match/${detail.matchId}/formation-image/away`);
         setAwayFormationImg(awayRes?.data?.url || "");
       } catch {}
     })();

@@ -101,209 +101,362 @@ const STAT_CODES = [
  * - 응답의 url/version으로 imagesMap 갱신
  */
 
+// 그룹 정의
+const COMMON_CODES = ["SPD","PAS","PAC"];                                   // 공통
+const POSITION_CODES = ["SHO","DRV","DEC","DRI","TAC","BLD"];               // 포지션
+const PERSONAL_CODES = ["CRO","HED","FST","ACT","OFF","TEC","COP"];         // 개인
+
+// 비율 매핑 (미리보기는 축소 표시, 원본은 리사이즈 안함)
+const TALL_CODES = new Set(["DRV","SHO","DEC","DRI","TAC","BLD","PAS","SPD","PAC"]); // 1:2
+const WIDE_CODES = new Set(["CRO","FST","ACT","OFF","HED","COP","TEC"]);             // 3:2
+const getMeta = (code) => {
+  if (TALL_CODES.has(code)) return { ratioText: "3:2", aspect: "3 / 2", target: "270×180" };
+  if (WIDE_CODES.has(code)) return { ratioText: "3:2", aspect: "3 / 2", target: "270×180" };
+  return { ratioText: "3:2", aspect: "3 / 2", target: "270×180" };
+};
 
 function StatImagesBatchUploader({ userId }) {
-  const [imagesMap, setImagesMap] = useState({}); // { ACT: {url, version}, ... }
-  const [selectedFiles, setSelectedFiles] = useState({}); // { ACT: File, ... }
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [errors, setErrors] = useState({}); // { ACT: "MSG" }
+  const [imagesMap, setImagesMap] = React.useState({});        // 서버 URL들 { ACT: "https://..." }
+  const [selectedFiles, setSelectedFiles] = React.useState({}); // { ACT: File }
+  const [localPreviews, setLocalPreviews] = React.useState({}); // { ACT: "blob:..." }
+  const [uploading, setUploading] = React.useState(false);
+  const [dragCode, setDragCode] = React.useState(null);
 
-  // 배치 GET
-  const fetchStatImages = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const res = await api.get(`/api/users/${userId}/stat-images`);
-      const data = res?.data?.data ?? res?.data ?? {};
-      setImagesMap(data);
-    } catch (e) {
-      setError(e?.response?.data?.message || "스탯 이미지 불러오기 실패");
-    } finally {
-      setLoading(false);
+   const previewsRef = React.useRef({}); // ✅ 현재 blob URL 저장
+
+  const revokePreview = (url) => {
+    if (!url) return;
+    // blob: 인 경우에만 revoke (http(s) 주소는 revoke 하면 안 됨)
+    if (typeof url === "string" && url.startsWith("blob:")) {
+      try { URL.revokeObjectURL(url); } catch {}
     }
   };
 
-  useEffect(() => {
-    fetchStatImages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+   // ✅ 1) 마운트 & userId 변경 시: 기존 서버 저장본 GET해서 imagesMap 세팅
+  React.useEffect(() => {
+    let ignore = false;
+
+    const bootstrap = async () => {
+      try {
+        // includeMissing=false → 업로드 안된 슬롯은 응답에서 제외
+        const res = await api.get(`/api/user/${userId}/stat-images?includeMissing=false`);
+        const payload = res?.data?.images ?? res?.data?.data?.images ?? res?.data ?? {};
+        if (!ignore && payload && typeof payload === "object") {
+          setImagesMap(payload);          // ex) { SPD: "https://...", PAS: "https://..." }
+        }
+      } catch (e) {
+        // 필요시 토스트/로그
+        // console.warn("stat-images GET failed", e);
+      }
+    };
+
+    // 💡 userId 바뀔 때 로컬 상태 깔끔히 초기화
+    //  (기존 blob URL 정리 → 선택파일/미리보기 초기화 → 서버본 새로 GET)
+    Object.values(previewsRef.current).forEach(revokePreview);
+    previewsRef.current = {};
+    setSelectedFiles({});
+    setLocalPreviews({});
+    setImagesMap({});
+
+    bootstrap();
+    return () => { ignore = true; };
   }, [userId]);
 
+  // ✅ 2) 언마운트 시 blob 정리 (이미 있으나 안전망으로 유지)
+  React.useEffect(() => {
+    return () => {
+      Object.values(previewsRef.current).forEach(revokePreview);
+      previewsRef.current = {};
+    };
+  }, []);
+  
+  // 슬롯 상태 판단
+const getStatus = (code) => {
+  if (selectedFiles?.[code]) return "pending";   // 업로드 대기(로컬 선택됨)
+  if (imagesMap?.[code]) return "server";        // 서버 저장본 있음
+  return "empty";
+};
+
+// 선택 해제(로컬 프리뷰/파일 제거)
+const clearSelection = (code) => {
+  setSelectedFiles((prev) => {
+    const { [code]: _, ...rest } = prev;
+    return rest;
+  });
+  setLocalPreviews((prev) => {
+    const url = prev[code];
+    if (url) revokePreview(url);
+    const { [code]: __, ...rest } = prev;
+    previewsRef.current[code] = undefined;
+    return rest;
+  });
+};
+
+
+  // 파일 선택/드롭 시 처리: selectedFiles + localPreviews 갱신
   const onPick = (code, file) => {
     setSelectedFiles((prev) => ({ ...prev, [code]: file || undefined }));
-    // 선택 취소 시 undefined로 두고, 실제 업로드 시 필터링
+    setLocalPreviews((prev) => {
+      const prevUrl = prev[code];
+      if (prevUrl) revokePreview(prevUrl);               // ← 해당 코드만 정리
+      const nextUrl = file ? URL.createObjectURL(file) : undefined;
+      previewsRef.current[code] = nextUrl;               // ref 갱신
+      if (!nextUrl) {
+        const { [code]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [code]: nextUrl };
+    });
   };
 
-  const fetchStatImageOne = async (code) => {
-  try {
-    const res = await api.get(`/api/users/${userId}/stat-images/${code}`);
-    const one = res?.data?.data ?? res?.data ?? null;
-    if (one) setImagesMap((prev) => ({ ...prev, [code]: one }));
-  } catch (e) {
-    // 필요하면 토스트
-  }
-};
+  // DnD
+  const onDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; };
+  const onDragEnter = (code) => (e) => { e.preventDefault(); setDragCode(code); };
+  const onDragLeave = (e) => { e.preventDefault(); setDragCode(null); };
+  const onDrop = (code) => (e) => {
+    e.preventDefault();
+    setDragCode(null);
+    const f = e.dataTransfer.files?.[0];
+    if (!f) return;
+    if (!/^image\//.test(f.type)) return alert("이미지 파일만 업로드할 수 있습니다.");
+    onPick(code, f);
+  };
 
   const doBatchUpload = async () => {
-  const entries = Object.entries(selectedFiles).filter(([, f]) => !!f);
-  if (entries.length === 0) {
-    alert("업로드할 파일이 없습니다.");
-    return;
-  }
-  const fd = new FormData();
-  for (const [code, file] of entries) {
-    // ✅ 스펙: form key를 스탯 코드 그대로 전송 (ACT, PAS, …)
-    fd.append(code, file);
-  }
+    const entries = Object.entries(selectedFiles).filter(([, f]) => !!f);
+    if (entries.length === 0) return alert("업로드할 파일이 없습니다.");
 
-  try {
-    setUploading(true);
-    setErrors({});
-    const res = await api.post(
-      `/api/users/${userId}/stat-images`,
-      fd,
-      { headers: { "Content-Type": "multipart/form-data" } }
-    );
-    const payload = res?.data ?? {};
-    const ok = payload?.data || {};
-    const err = payload?.errors || {};
+    const fd = new FormData();
+    for (const [code, file] of entries) fd.append(code, file);
 
-    if (ok && typeof ok === "object") {
-      setImagesMap((prev) => ({ ...prev, ...ok }));
+    try {
+      setUploading(true);
+      const res = await api.post(`/api/user/${userId}/stat-images`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const payload = res?.data ?? {};
+      const uploaded = payload?.uploaded || payload?.data?.uploaded || payload?.data || {};
+      // 서버 URL 반영
+      if (uploaded && typeof uploaded === "object") {
+        setImagesMap((prev) => ({ ...prev, ...uploaded }));
+        // 해당 코드들의 로컬 프리뷰 정리
+        setLocalPreviews((prev) => {
+          const next = { ...prev };
+          Object.keys(uploaded).forEach((code) => {
+            if (next[code]) { revokePreview(next[code]); delete next[code]; }
+          });
+          return next;
+        });
+      }
+      // 선택 파일 초기화
+      setSelectedFiles({});
+    } catch (e) {
+      alert(e?.response?.data?.message || "배치 업로드 실패");
+    } finally {
+      setUploading(false);
     }
-    if (err && typeof err === "object") {
-      setErrors(err);
-    }
+  };
+
+   const afterUploadSuccess = (uploaded) => {
+    setImagesMap((prev) => ({ ...prev, ...uploaded }));
+    setLocalPreviews((prev) => {
+      const next = { ...prev };
+      Object.keys(uploaded).forEach((code) => {
+        const url = next[code];
+        if (url) {
+          revokePreview(url);             // ← 업로드 완료된 코드만 정리
+          delete next[code];
+          previewsRef.current[code] = undefined;
+        }
+      });
+      return next;
+    });
     setSelectedFiles({});
-  } catch (e) {
-    const msg = e?.response?.data?.message || "배치 업로드 실패";
-    alert(msg);
-  } finally {
-    setUploading(false);
-  }
-};
+  };
 
-  return (
+    React.useEffect(() => {
+    return () => {
+      Object.values(previewsRef.current).forEach(revokePreview);
+      previewsRef.current = {};
+    };
+  }, []);
+
+  const previewSrcOf = (code) => localPreviews[code] || imagesMap[code] || "";
+
+  // 섹션 렌더러 (기존과 동일, 미리보기 소스만 변경)
+  const SectionGrid = ({ title, codes }) => (
+    <>
+      <UD.SectionTitle style={{ marginTop: 12 }}>{title}</UD.SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, alignItems: "start" }}>
+        {codes.map((code) => {
+          const picked = selectedFiles?.[code];
+          const previewSrc = localPreviews?.[code] || imagesMap?.[code] || ""; // ✅ 로컬 우선
+          const { ratioText, aspect, target } = getMeta(code);
+          const isDragging = dragCode === code;
+          const status = getStatus(code); 
+const borderColor =
+  status === "pending" ? "#f59e0b" : status === "server" ? "#eef2f7" : "#e5e7eb";
+const badge =
+  status === "pending" ? { text: "변경 예정", tone: "#b45309", bg: "#fef3c7" } :
+  status === "server"  ? { text: "저장됨",   tone: "#334155", bg: "#e2e8f0" } :
+                         null;
+
+          
+
+          return (
+            <div
+  key={code}
+  onDragOver={onDragOver}
+  onDragEnter={onDragEnter(code)}
+  onDragLeave={onDragLeave}
+  onDrop={onDrop(code)}
+  style={{
+    border: `2px dashed ${isDragging ? "#3b82f6" : borderColor}`,
+    background: isDragging ? "rgba(59,130,246,0.06)" : "transparent",
+    borderRadius: 10,
+    padding: 12,
+    display: "grid",
+    gap: 8,
+    transition: "background 120ms ease, border-color 120ms ease",
+  }}
+>
+  <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, alignItems: "center" }}>
+    <span>{code}</span>
+    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      {badge && (
+        <span
+          style={{
+            fontSize: 11,
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: badge.tone,
+            background: badge.bg,
+            border: "1px solid rgba(0,0,0,0.05)",
+          }}
+        >
+          {badge.text}
+        </span>
+      )}
+      <span style={{ color: "#6b7280", fontSize: 12 }}>{ratioText} · {target}</span>
+    </div>
+  </div>
+
+  {/* 미리보기 영역은 그대로 (local 우선) */}
+  <div
+    style={{
+      position: "relative",
+      width: "100%",
+      aspectRatio: aspect,
+      borderRadius: 8,
+      background: "#f8fafc",
+      overflow: "hidden",
+      border: `1px solid ${isDragging ? "#3b82f6" : borderColor}`,
+    }}
+  >
+    {previewSrc ? (
+      <img
+        src={previewSrc}
+        alt={code}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", background: "#fff", objectFit: "contain" }}
+      />
+    ) : (
+      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12 }}>
+        {isDragging ? "여기에 놓아 업로드" : "미등록 (끌어오기 지원)"}
+      </div>
+    )}
+  </div>
+
+  {/* 파일 선택 */}
+  <label
+    style={{
+      display: "inline-flex",
+      padding: "6px 10px",
+      border: "1px solid #e5e7eb",
+      borderRadius: 8,
+      cursor: uploading ? "not-allowed" : "pointer",
+      background: uploading ? "#f1f5f9" : "#f8fafc",
+      fontSize: 12,
+      width: "fit-content",
+    }}
+  >
+    파일 선택
+    <input
+      type="file"
+      accept="image/*"
+      disabled={uploading}
+      style={{ display: "none" }}
+      onChange={(e) => onPick(code, e.target.files?.[0])}
+    />
+  </label>
+
+  {/* 링크 & 취소 버튼 */}
+  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+    {previewSrc && (
+      <>
+        <a href={previewSrc} target="_blank" rel="noreferrer">
+          <UD.CopyBtn as="span" style={{ textDecoration: "underline" }}>열기</UD.CopyBtn>
+        </a>
+        <UD.CopyBtn onClick={() => navigator.clipboard.writeText(previewSrc)}>URL 복사</UD.CopyBtn>
+      </>
+    )}
+    {status === "pending" && (
+      <UD.OutlineBtn onClick={() => clearSelection(code)} style={{ padding: "4px 8px" }}>
+        취소
+      </UD.OutlineBtn>
+    )}
+  </div>
+</div>
+
+          );
+        })}
+      </div>
+    </>
+  );
+ const pendingCount = React.useMemo(
+    () => Object.keys(selectedFiles).length,
+    [selectedFiles]
+  );
+
+   return (
     <UD.Card>
       <UD.CardTitle>스탯 이미지</UD.CardTitle>
-      {loading && <UD.Muted>스탯 이미지 불러오는 중...</UD.Muted>}
-      {error && <UD.Muted style={{ color: "#b91c1c" }}>{error}</UD.Muted>}
+      <UD.Muted style={{ marginBottom: 12, lineHeight: 1.5 }}>
+        각 카드에 파일을 <b>끌어다 놓거나</b> ‘파일 선택’을 눌러 업로드하세요. 미리보기는 화면에 맞춰 <b>축소</b>되며,
+        <b>비율</b>은 정확히 유지합니다. 원본은 서버에 <b>리사이즈 없이</b> 저장됩니다.
+        <br />• <b>1:2 (300×600)</b>: DRV, SHO, DEC, DRI, TAC, BLD, PAS, SPD, PAC
+        <br />• <b>3:2 (270×180)</b>: CRO, FST, ACT, OFF, HED, COP, TEC
+      </UD.Muted>
 
-      {!loading && (
-        <>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
-              gap: 16,
-              alignItems: "flex-start",
-            }}
-          >
-            {STAT_CODES.map((code) => {
-              const previewUrl = imagesMap?.[code]?.url || "";
-              const err = errors?.[code];
-              const picked = selectedFiles?.[code];
-              return (
-                <div
-                  key={code}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 10,
-                    padding: 12,
-                    display: "grid",
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ fontWeight: 700 }}>{code}</div>
-                  <div
-                    style={{
-                      width: "100%",
-                      height: 120,
-                      borderRadius: 8,
-                      background: "#f8fafc",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
-                      border: "1px solid #eef2f7",
-                    }}
-                  >
-                    {previewUrl ? (
-                      <img
-                        src={previewUrl}
-                        alt={`${code}`}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      />
-                    ) : (
-                      <span style={{ color: "#94a3b8", fontSize: 12 }}>미등록</span>
-                    )}
-                  </div>
+      <SectionGrid title="공통 지표" codes={COMMON_CODES} />
+      <SectionGrid title="포지션 지표" codes={POSITION_CODES} />
+      <SectionGrid title="개인 지표" codes={PERSONAL_CODES} />
 
-                  {/* 선택된 파일 표시 */}
-                  {picked && (
-                    <div style={{ fontSize: 12, color: "#475569" }}>
-                      선택됨: {picked.name}
-                    </div>
-                  )}
-
-                  {/* 파일 선택 */}
-                  <label
-                    style={{
-                      display: "inline-flex",
-                      padding: "6px 10px",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 8,
-                      cursor: uploading ? "not-allowed" : "pointer",
-                      background: uploading ? "#f1f5f9" : "#f8fafc",
-                      fontSize: 12,
-                      width: "fit-content",
-                    }}
-                  >
-                    파일 선택
-                    <input
-                      type="file"
-                      accept="image/*"
-                      disabled={uploading}
-                      style={{ display: "none" }}
-                      onChange={(e) => onPick(code, e.target.files?.[0])}
-                    />
-                  </label>
-
-                  {/* 오류 표시 */}
-                  {err && (
-                    <div style={{ color: "#b91c1c", fontSize: 12 }}>오류: {String(err)}</div>
-                  )}
-
-                  {/* 원본 열기/URL 복사 */}
-                  {previewUrl && (
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <a href={previewUrl} target="_blank" rel="noreferrer">
-                        <UD.CopyBtn as="span" style={{ textDecoration: "underline" }}>
-                          열기
-                        </UD.CopyBtn>
-                        <UD.CopyBtn onClick={() => fetchStatImageOne(code)}>새로고침</UD.CopyBtn>
-                      </a>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <UD.SmallBtn onClick={doBatchUpload} disabled={uploading}>
-              {uploading ? "업로드 중..." : "선택 항목 한 번에 업로드"}
-            </UD.SmallBtn>
-            <UD.OutlineBtn onClick={fetchStatImages} disabled={uploading}>
-              새로고침
+      {/* ✅ 툴바는 JSX 내부에 */}
+      <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+        <UD.SmallBtn onClick={doBatchUpload} disabled={uploading || pendingCount === 0}>
+          {uploading ? "업로드 중..." : `선택 항목 한 번에 업로드${pendingCount ? ` (${pendingCount})` : ""}`}
+        </UD.SmallBtn>
+        {pendingCount > 0 && (
+          <>
+            <span style={{ fontSize: 12, color: "#475569" }}>변경 예정 {pendingCount}건</span>
+            <UD.OutlineBtn
+              onClick={() => Object.keys(selectedFiles).forEach(clearSelection)}
+              disabled={uploading}
+              style={{ padding: "6px 10px" }}
+            >
+              모두 취소
             </UD.OutlineBtn>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </UD.Card>
   );
 }
+
+
+
+
+
 
 const UserDetailPageUX = () => {
   const { userId } = useParams();

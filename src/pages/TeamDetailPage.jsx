@@ -39,7 +39,9 @@ const TeamDetailPage = () => {
         api.get(`/api/admin/teams/${teamId}/join-requests`),
       ]);
 
-      if (dRes.data?.success) setDetail(dRes.data.data);
+      if (dRes.data?.success) {setDetail(dRes.data.data);
+        setTeamImgUrl(dRes.data?.data?.teamImg ?? "");
+      }
       if (mRes.data?.success) setMembers(mRes.data.data || []);
       if (rRes.data?.success) setRequests(rRes.data.data || []);
     } catch (e) {
@@ -50,22 +52,22 @@ const TeamDetailPage = () => {
     }
   };
 
-    const fetchTeamImage = async () => {
-    try {
-        const r = await api.get(`/api/teams/${teamId}/profile-image`);
-   const url = r?.data?.url || "";  // ✅ 응답이 {url: "..."}
-   setTeamImgUrl(url);
-    } catch (e) {
-      console.warn("팀 이미지 불러오기 실패", e);
-      setTeamImgUrl("");
-    }
-  };
+  //   const fetchTeamImage = async () => {
+  //   try {
+  //       const r = await api.get(`/api/team/${teamId}/profile-image`);
+  //  const url = r?.data?.url || "";  // ✅ 응답이 {url: "..."}
+  //  setTeamImgUrl(url);
+  //   } catch (e) {
+  //     console.warn("팀 이미지 불러오기 실패", e);
+  //     setTeamImgUrl("");
+  //   }
+  // };
 
 
   useEffect(() => {
     if (!teamId) return;
     loadAll();
-      fetchTeamImage();
+      // fetchTeamImage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId]);
 
@@ -73,6 +75,7 @@ const TeamDetailPage = () => {
     try {
       const dRes = await api.get(`/api/admin/teams/${teamId}`);
       if (dRes.data?.success) setDetail(dRes.data.data);
+       setTeamImgUrl(dRes.data?.data?.teamImgUrl ?? "");
     } catch (e) {
       console.error(e);
     }
@@ -458,10 +461,16 @@ const TeamDetailPage = () => {
             defaultType={detail.teamType || ""}
            defaultImg={teamImgUrl}     
             onSubmit={handleUpdate}
-            onImageChanged={async () => {
-              // 업로드 완료 후에는 무조건 GET으로 다시 받아서 최신 프리사인드 URL로 교체
-              await fetchTeamImage();
-            }}
+           
+         // 업로드 응답 url을 그대로 헤더 프리뷰에 반영
+        onImageChanged={async (urlFromUpload) => {
+  if (urlFromUpload) {
+     setTeamImgUrl(urlFromUpload);
+   } else {
+     // 업로드 성공했지만 URL을 안 내려주는 BE → 상세 재조회로 최신 teamImg 반영
+     await reloadDetailOnly();
+   }
+ }}
           />
         </Card>
       )}
@@ -597,6 +606,7 @@ function EditForm({
 
   // 업로드 응답 url을 미리보기로만 사용 (PATCH로는 절대 보내지 않음)
   const [previewImg, setPreviewImg] = useState(defaultImg || "");
+   useEffect(() => { setPreviewImg(defaultImg || ""); }, [defaultImg]);
 
   const submit = (e) => {
     e.preventDefault();
@@ -616,17 +626,17 @@ function EditForm({
     onSubmit(payload);
   };
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await api.get(`/api/teams/${teamId}/profile-image`);
-        const url =  r?.data?.url || "";
-        if (url) setPreviewImg(url);
-      } catch {
-        // 실패 시 defaultImg 유지
-      }
-        })();
-  }, [teamId]);
+  // useEffect(() => {
+  //   (async () => {
+  //     try {
+  //       const r = await api.get(`/api/team/${teamId}/profile-image`);
+  //       const url =  r?.data?.url || "";
+  //       if (url) setPreviewImg(url);
+  //     } catch {
+  //       // 실패 시 defaultImg 유지
+  //     }
+  //       })();
+  // }, [teamId]);
 
   return (
     <form onSubmit={submit} style={{ display: "grid", gap: 12, maxWidth: 560 }}>
@@ -688,17 +698,14 @@ function EditForm({
 
         <UploadField
           label="이미지 선택"
-          initialUrl={previewImg}
-          endpoint={`/api/teams/${teamId}/profile-image`} // 멀티파트 POST, 서버가 S3+DB 저장
-           onUploaded={async ({ url }) => {
-            try {
-              const r = await api.get(`/api/teams/${teamId}/profile-image`);
-              const fresh = r?.data?.url || "";
-              setPreviewImg(fresh || "");
-            } finally {
-              onImageChanged?.(); // 부모(상단 헤더)도 싱크
-            }
-          }}
+        
+          endpoint={`/api/team/${teamId}/profile-image`} // 멀티파트 POST, 서버가 S3+DB 저장
+           onUploaded={({ url }) => {
+       // 업로드 응답의 url만으로 즉시 반영 (캐시 회피용 ts 쿼리 붙여도 됨)
+       const fresh = url ? `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}` : "";
+       setPreviewImg(fresh);
+       onImageChanged?.(fresh); // 부모에도 전달
+     }}
         />
 
         <div style={{ color: "#6b7280", fontSize: 12, marginTop: 6 }}>

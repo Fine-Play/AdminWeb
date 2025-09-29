@@ -8,7 +8,6 @@ const BASE_URL =
 
 const api = axios.create({
   baseURL: BASE_URL,
-  headers: { "Content-Type": "application/json" },
 });
 
 // 모듈 로드 확인

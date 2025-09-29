@@ -49,13 +49,23 @@ export default function UploadField({
         },
       });
 
-      // 서버 응답 형태 호환: { url } 또는 { data: { url } }
+            // 서버 응답 형태 폭넓게 허용
       const data = res?.data?.data ?? res?.data ?? {};
-      const finalUrl = data.url || data.path || ""; // 백엔드가 path만 주면 CDN prefix가 필요
-      if (!finalUrl) throw new Error("업로드 응답에 url이 없습니다.");
+      const candidate =
+        data.url ||
+        data.teamImg ||     // ✅ 팀 API에서 쓰던 키
+        data.imageUrl ||
+        data.fileUrl ||
+        (data.path ?? "");  // path만 오면 CDN prefix를 붙일 수도 있음
 
-      setUrl(finalUrl);
-      onUploaded?.({ url: finalUrl });
+      if (candidate) {
+        const finalUrl = `${candidate}${candidate.includes("?") ? "&" : "?"}t=${Date.now()}`;
+        setUrl(finalUrl);
+        onUploaded?.({ url: finalUrl });
+      } else {
+        // URL이 없어도 에러로 처리하지 않고, 상위에서 재조회하도록 신호만 보냄
+        onUploaded?.({ url: "" });
+      }
     } catch (err) {
       console.error(err);
       alert("업로드에 실패했습니다.");
