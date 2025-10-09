@@ -43,6 +43,20 @@ export const DeleteButton = styled.button`
    background-color: #b6b6e1ff; /* hover 변화를 막기 위해 동일 색상 */
  }
 `;
+
+export const PrimaryButton = styled.button`
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #21213f;
+  color: #fff;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  &:hover { opacity: 0.9; }
+  &:disabled { opacity: 0.6; cursor: not-allowed; }
+`;
+
+
 export const ConfirmBackdrop = styled.div`
   position: fixed;
   inset: 0;
@@ -136,12 +150,11 @@ export const PageButton = styled.button`
     cursor: not-allowed;
   }
 `;
-
- export const PageNumber = styled(PageButton)`
-   background: ${(p) => (p.$active ? "#21213f" : "#eee")};
-   color: ${(p) => (p.$active ? "white" : "black")};
+export const PageNumber = styled(PageButton)`
+  background: ${(p) => (p.$active || p.isActive ? "#21213f" : "#eee")};
+  color: ${(p) => (p.$active || p.isActive ? "white" : "black")};
 `;
-
+ 
 export const TitleRow = styled.div`
   display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;
 `;
@@ -158,4 +171,11 @@ export const ClearBtn = styled.button`
 
 export const Muted= styled.div`
 float:right
+`;
+
+
+export const ErrorText = styled.div`
+  color: #dc2626;
+  font-weight: 700;
+  font-size: 13px;
 `;
