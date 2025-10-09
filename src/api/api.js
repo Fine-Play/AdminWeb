@@ -4,7 +4,7 @@ import axios from "axios";
 const BASE_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
   process.env.REACT_APP_API_BASE_URL ||
-  "http://localhost:8080"; // ⚠️ 프록시가 없다면 8080로 직접 보냅니다.
+  "https://fineplay.kr"; // ⚠️ 프록시가 없다면 8080로 직접 보냅니다.
 
 const api = axios.create({
   baseURL: BASE_URL,
